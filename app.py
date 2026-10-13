@@ -940,55 +940,127 @@ with risk_tab:
                 use_container_width=True
             )
 
-
 with chat_tab:
     st.markdown("## Chat with uploaded documents")
 
     if not st.session_state.documents:
         st.warning("Please upload and extract documents first.")
+
     else:
-        st.info("Ask questions based on the uploaded documents. The answer will be grounded only in the extracted document text.")
+        st.info(
+            "Ask questions based on the uploaded documents. "
+            "You can also ask follow-up questions and continue the conversation."
+        )
 
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+        document_names = [
+            document["file_name"]
+            for document in st.session_state.documents
+        ]
 
-        user_question = st.chat_input("Ask a question about the uploaded contracts")
+        st.caption(
+            "Documents currently available: "
+            + ", ".join(document_names)
+        )
 
-        if user_question:
-            st.session_state.chat_history.append({
-                "role": "user",
-                "content": user_question
-            })
+        # Display the complete conversation in sequence.
+        chat_container = st.container()
 
-            with st.chat_message("user"):
-                st.markdown(user_question)
+        with chat_container:
+            if not st.session_state.chat_history:
+                with st.chat_message("assistant"):
+                    st.markdown(
+                        "The uploaded documents are ready. "
+                        "Ask a question to begin the conversation."
+                    )
 
-            with st.chat_message("assistant"):
+            for message in st.session_state.chat_history:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+        # Keep the follow-up input directly below the conversation.
+        with st.form(
+            key="document_chat_form",
+            clear_on_submit=True
+        ):
+            user_question = st.text_input(
+                "Follow-up question",
+                placeholder=(
+                    "Ask a question or continue with a follow-up question..."
+                ),
+                label_visibility="collapsed"
+            )
+
+            submit_question = st.form_submit_button(
+                "Send",
+                type="primary",
+                use_container_width=True
+            )
+
+        if submit_question:
+            cleaned_question = user_question.strip()
+
+            if not cleaned_question:
+                st.warning("Please enter a question before selecting Send.")
+
+            else:
+                # Keep a copy of the previous conversation.
+                # The current question is not added until after the model call,
+                # which prevents it from appearing twice in the prompt.
+                previous_chat_history = list(
+                    st.session_state.chat_history
+                )
+
                 with st.spinner("Reviewing uploaded documents..."):
                     try:
                         answer = chat_with_documents(
-                            question=user_question,
+                            question=cleaned_question,
                             documents=st.session_state.documents,
-                            chat_history=st.session_state.chat_history
+                            chat_history=previous_chat_history
                         )
 
-                        st.markdown(answer)
+                        st.session_state.chat_history.append({
+                            "role": "user",
+                            "content": cleaned_question
+                        })
 
                         st.session_state.chat_history.append({
                             "role": "assistant",
                             "content": answer
                         })
 
+                        # Rerun so that the new answer appears in sequence
+                        # and the follow-up box returns below the response.
+                        st.rerun()
+
                     except Exception as error:
-                        error_message = "The document chat request failed."
-                        st.error(error_message)
-                        st.exception(error)
+                        error_message = (
+                            "The document chat request failed. "
+                            "Please try again."
+                        )
+
+                        st.session_state.chat_history.append({
+                            "role": "user",
+                            "content": cleaned_question
+                        })
 
                         st.session_state.chat_history.append({
                             "role": "assistant",
                             "content": error_message
                         })
+
+                        st.error(error_message)
+                        st.exception(error)
+
+        if st.session_state.chat_history:
+            st.divider()
+
+            if st.button(
+                "Start new conversation",
+                key="start_new_chat",
+                use_container_width=True
+            ):
+                st.session_state.chat_history = []
+                st.rerun()
 
 
 with download_tab:
